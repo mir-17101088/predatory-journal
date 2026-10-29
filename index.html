@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Authors with multiple papers in predatory journals</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Merriweather:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --text: #1d1d1d;
+    --muted: #5f6368;
+    --faint: #80868b;
+    --line: #e2e2e2;
+    --stripe: #f7f7f7;
+    --accent: #0b5cad;
+    --bg: #fff;
+    --cols: minmax(0, 38fr) 66px minmax(0, 62fr);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); }
+  body {
+    font-family: "Merriweather", Georgia, "Times New Roman", serif;
+    color: var(--text);
+    -webkit-text-size-adjust: 100%;
+    overflow-x: hidden;
+    overflow-wrap: break-word;
+  }
+  button, input, select { font: inherit; color: inherit; }
+  .chart { padding: 14px 12px 16px; }
+
+  h1.title { margin: 0 0 8px; font-size: 22px; line-height: 1.25; font-weight: 700; }
+  .subtitle { margin: 0; font-size: 13.5px; line-height: 1.6; font-style: italic; }
+  .more {
+    display: none; margin: 2px 0 0; padding: 4px 0; border: 0; background: none;
+    font-size: 12.5px; font-weight: 700; color: var(--accent); cursor: pointer;
+  }
+
+  /* toolbar + column labels stay pinned while the list scrolls */
+  .bar { position: sticky; top: 0; z-index: 5; background: var(--bg); padding-top: 12px; }
+  .controls { display: flex; gap: 8px; }
+  .search {
+    flex: 1 1 auto; min-width: 0; height: 38px; padding: 0 12px; font-size: 14px;
+    border: 1px solid #c9c9c9; border-radius: 3px; background: #fff;
+  }
+  .sort {
+    flex: 0 0 auto; height: 38px; padding: 0 8px; font-size: 13px;
+    border: 1px solid #c9c9c9; border-radius: 3px; background: #fff; cursor: pointer;
+  }
+  .filters { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .filters button {
+    height: 32px; padding: 0 11px; font-size: 12.5px; white-space: nowrap;
+    border: 1px solid #c9c9c9; border-radius: 16px; background: #fff; cursor: pointer;
+  }
+  .filters button .n { color: var(--faint); margin-left: 3px; }
+  .filters button[aria-pressed="true"] { background: var(--text); border-color: var(--text); color: #fff; }
+  .filters button[aria-pressed="true"] .n { color: #c9c9c9; }
+  .search:focus, .sort:focus, .filters button:focus-visible, .more:focus-visible, .pager button:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 1px;
+  }
+
+  .cols {
+    display: grid; grid-template-columns: var(--cols); margin-top: 10px;
+    font-size: 13px; font-weight: 700; border-bottom: 2px solid var(--text);
+  }
+  .cols > div { padding: 6px 10px; }
+  .cols .c-papers, .row > .papers { text-align: right; padding-left: 4px; padding-right: 8px; }
+
+  .row { display: grid; grid-template-columns: var(--cols); grid-template-areas: "a p r"; border-bottom: 1px solid var(--line); }
+  .row:nth-child(even) { background: var(--stripe); }
+  .row > div { padding: 10px; }
+  .author { grid-area: a; }
+  .papers { grid-area: p; text-align: right; font-weight: 700; font-size: 15px; font-variant-numeric: tabular-nums; }
+  .papers .unit { display: none; }
+  .response { grid-area: r; font-size: 13px; line-height: 1.55; }
+  .name { font-weight: 700; font-size: 14px; line-height: 1.35; }
+  .meta { font-size: 11.5px; line-height: 1.45; color: var(--muted); margin-top: 2px; }
+  .journal { font-size: 11.5px; line-height: 1.45; font-style: italic; color: var(--muted); margin-top: 5px; }
+  .response.none, .response.deceased { color: var(--faint); font-style: italic; }
+
+  .empty { padding: 20px 10px; color: var(--muted); font-style: italic; font-size: 14px; }
+  .pager { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; }
+  .pager[hidden], .empty[hidden] { display: none; }
+  .pager button {
+    min-width: 44px; height: 38px; padding: 0 12px; font-size: 13px; font-weight: 700;
+    color: var(--accent); background: #fff; border: 1px solid #c9c9c9; border-radius: 3px; cursor: pointer;
+  }
+  .pager button:disabled { color: #b5b5b5; cursor: default; }
+  .pager .status { font-size: 12.5px; color: var(--muted); text-align: center; }
+
+  @media (hover: hover) {
+    .pager button:hover:not(:disabled), .filters button:hover:not([aria-pressed="true"]) { border-color: var(--accent); }
+  }
+
+  /* phones: each author becomes a stacked card */
+  @media (max-width: 559px) {
+    .chart { padding: 12px 10px 14px; }
+    h1.title { font-size: 19px; }
+    .subtitle { font-size: 13px; }
+    .subtitle:not(.open) { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+    .more { display: inline-block; }
+    .bar { padding-top: 10px; padding-bottom: 8px; border-bottom: 2px solid var(--text); }
+    .filters button { flex: 1 1 auto; padding: 0 8px; font-size: 12px; }
+    .cols { display: none; }
+    .row { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "a p" "r r"; padding: 12px 0; }
+    .row:nth-child(even) { background: none; }
+    .row > div { padding: 0; }
+    .papers { font-size: 12px; white-space: nowrap; margin-left: 10px; padding: 3px 8px !important; height: max-content; border: 1px solid var(--line); border-radius: 12px; background: var(--stripe); }
+    .papers .unit { display: inline; font-weight: 400; }
+    .response { margin-top: 8px; }
+    .pager .status { font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+<div class="chart">
+  <h1 class="title">Authors with multiple papers in predatory journals</h1>
+  <p class="subtitle" id="sub">In total, 92 authors published more than one paper in the predatory journals reviewed by The Daily Star. The newspaper could find the phone numbers and email addresses of 37 of them and contacted them for comment. Many did not respond to our multiple requests for comment. In keeping with journalistic standards, we are publishing the names of all the authors The Daily Star could reach, alongside their responses, or the lack of one.</p>
+  <button class="more" id="more" type="button" aria-expanded="false" aria-controls="sub">Read more</button>
+
+  <div class="bar" id="bar">
+    <div class="controls">
+      <input class="search" id="q" type="search" placeholder="Name or institution" aria-label="Search by author name or institution">
+      <select class="sort" id="sort" aria-label="Sort authors">
+        <option value="papers">Most papers</option>
+        <option value="author">Name A–Z</option>
+      </select>
+    </div>
+    <div class="filters" role="group" aria-label="Filter by response">
+      <button type="button" data-f="all" aria-pressed="true">All<span class="n" id="n-all"></span></button>
+      <button type="button" data-f="responded" aria-pressed="false">Responded<span class="n" id="n-responded"></span></button>
+      <button type="button" data-f="none" aria-pressed="false">No response<span class="n" id="n-none"></span></button>
+    </div>
+    <div class="cols" aria-hidden="true">
+      <div>Author</div><div class="c-papers">Papers</div><div>Response</div>
+    </div>
+  </div>
+
+  <div id="rows" role="list" aria-live="polite"></div>
+  <div id="empty" class="empty" hidden>No authors match your search.</div>
+  <nav class="pager" id="pager" aria-label="Table pages">
+    <button type="button" id="prev" aria-label="Previous page">&lsaquo; Prev</button>
+    <span class="status" id="status"></span>
+    <button type="button" id="next" aria-label="Next page">Next &rsaquo;</button>
+  </nav>
+</div>
+
+<script>
+  var DATA = [
+  {
+    "author": "Mohammed Rahmatullah",
+    "role": "Professor and Vice Chancellor (Former)",
+    "dept": "Department of Biotechnology and Genetic Engineering",
+    "aff": "University of Development Alternative",
+    "papers": 12,
+    "journal": "Journal of Medicinal Plants Studies",
+    "response": "Deceased"
+  },
+  {
+    "author": "Kamrul Qader Chowdhury",
+    "role": "Education Officer",
+    "dept": "",
+    "aff": "Directorate of Primary Education (DPE)",
+    "papers": 9,
+    "journal": "International Journal of Advance Research and Innovative Ideas in Education",
+    "response": "He said he chose to publish in this journal simply because it was easy. He added that there was no professional incentive behind the publication. “I authored 25 papers in total, for self-satisfaction,” he said. He did not know it was a predatory journal."
+  },
+  {
+    "author": "Rownak Jahan",
+    "role": "Professor and Chairman",
+    "dept": "Department of Biotechnology and Genetic Engineering",
+    "aff": "University of Development Alternative",
+    "papers": 7,
+    "journal": "Journal of Medicinal Plants Studies",
+    "response": "She did not respond to our multiple requests for comment."
+  },
+  {
+    "author": "A K M Obaydullah",
+    "role": "Instructor",
+    "dept": "",
+    "aff": "URC, Primary and Mass Education Ministry",
+    "papers": 7,
+    "journal": "International Journal of Advance Research and Innovative Ideas in Education",
+    "response": "“What is your interest in this?” asked Obaydullah when contacted. He demanded documents proving that the journal is predatory. The Daily Star forwarded the documented evidence to his WhatsApp number, but he offered no further comment."
+  },
+  {
+    "author": "Dijendra Chandra Acharja",
+    "role": "Assistant Upazila Education Officer",
+    "dept": "",
+    "aff": "Upazila Education Office, Madhabpur, Habiganj",
+    "papers": 4,
+    "journal": "International Journal of Advance Research and Innovative Ideas in Education",
+    "response": "When he published the paper, he had no idea it was a predatory journal. After a friend who is a Dhaka University faculty member told him about the journal's reputation, he stopped publishing in such journals."
+  },
+  {
+    "author": "Md. Abdul Mannan",
+    "role": "Laboratory Officer",
+    "dept": "Department of Pharmacy",
+    "aff": "Stamford University",
+    "papers": 4,
+    "journal": "Journal of Medicinal Plants Studies",
+    "response": "He did not respond to our multiple requests for comment."
+  },
+  {
+    "author": "Md. Mahbubur Rahman",
+    "role": "Professor",
+    "dept": "Department of Botany",
+    "aff": "University of Chittagong",
+    "papers": 4,
+    "journal": "Journal of Medicinal Plants Studies",
+    "response": "He did not respond to our multiple requests for comment."
+  },
+  {
+    "author": "Mohammad Abu Bin Nyeem",
+    "role": "Associate Professor",
+    "dept": "Department of Unani Medicine",
+    "aff": "Hamdard University Bangladesh",
+    "papers": 4,
+    "journal": "Journal of Medicinal Plants Studies",
+    "response": "“I published my first paper in 2008 and have published many papers since then. At the time, I did not know about the journal’s reputation, and I have never paid the journal to publish my papers.”"
+  },
+  {
+    "author": "Muhammad Mobakkharul Islam Mizan",
+    "role": "Education Officer",
+    "dept": "",
+    "aff": "Directorate of Primary Education",
+    "papers": 4,
+    "journal": "International Journal of Advance Research and Innovative Ideas in Education",
+    "response": "He did not respond to our multiple requests for comment."
+  },
+  {
+    "author": "Muhammad Mukhles Uddin",
+    "role": "Assistant District Primary Education Officer",
+    "dept": "",
+    "aff": "National Academy for Primary Education",
+    "papers": 4,
+    "journal": "International Journal of Advance Research and Innovative Ideas in Education",
+    "response": "He did not respond to our multiple requests for comment."
+  },
+  {
+    "author": "Nasrin Akter",
+    "role": "Assistant Education Officer",
+    "dept": "",
+    "aff": "Directorate of Primary Education",
+    "papers": 4,
+    "journal": "International Journal of Advance Research and Innovative Ideas in Education",
+    "response": "She did not respond to our multiple requests for comment."
+  },
+  {
+    "author": "Nripendra Nath Biswas",
+    "role": "Professor",
+    "dept": "Pharmacy Discipline",
+    "aff": "Khulna University",
+    "papers": 4,
+    "journal": "Journal of Medicinal Plants Studies",
+    "response": "“I do not know whether the journal was predatory. It was free of cost, so I published the paper there.”"
+  },
+  {
+    "author": "Tapash Kumar Bhowmik",
+    "role": "Associate Professor",
+    "dept": "Department of Botany",
+    "aff": "University of Chittagong",
+    "papers": 4,
+    "journal": "Journal of Medicinal Plants Studies",
+    "response": "He said he did not know the journal was predatory. On September 23, he sent the journal a request to withdraw all of his papers and shared a copy of it with this newspaper. He added that he had submitted papers to this journal after seeing senior colleagues publish in it."
+  },
+  {
+    "author": "Khoshnur Jannat",
+    "role": "Lecturer",
+    "dept": "Department of Pharmacy",
+    "aff": "University of Development Alternative",
+    "papers": 3,
+    "journal": "Journal of Medicinal Plants Studies",
+    "response": "She did not respond to our multiple requests for comment."
+  },
+  {
+    "author": "Md. Golam Mostafa",
+    "role": "Director",
+    "dept": "Institute of Environmental Science",
+    "aff": "University of Rajshahi",
+    "papers": 3,
+    "journal": "Asian Journal of Applied Science and Technology",
+    "response": "Regarding the Asian Journal of Applied Science and Technology, the editor of the journal had previously invited me to submit a manuscript with an APC waiver. At that time, we were unaware of concerns regarding the journal’s publishing practices. In light of this information, we will be more careful when evaluating journals before submission."
+  },
+  {
+    "author": "Md. Kamrul Alam Khan",
+    "role": "Professor",
+    "dept": "Department of Physics",
+    "aff": "Jagannath University",
+    "papers": 3,
+    "journal": "International Journal of Advance Research and Innovative Ideas in Education",
+    "response": "“This is a very unfortunate incident. The students used my name on the paper without my consent. I now make sure that students do not use my name without my approval. I made a mistake in this case, and I hope this will not happen again.”"
+  },
+  {
+    "author": "Minhajur Rahman",
+    "role": "Associate Professor",
+    "dept": "Department of Botany",
+    "aff": "University of Chittagong",
+    "papers": 3,
+    "journal": "Journal of Medicinal Plants Studies",
+    "response": "He did not respond to our multiple requests for comment."
+  },
+  {
+    "author": "Pritam Kundu",
+    "role": "Assistant Professor",
+    "dept": "Pharmacy Discipline",
+    "aff": "Khulna University",
+    "papers": 3,
+    "journal": "Journal of Medicinal Plants Studies",
+    "response": "He did not respond to our multiple requests for comment."
+  },
+  {
+    "author": "Mizanur Rahman",
+    "role": "Field Investigator",
+    "dept": "",
+    "aff": "Bangladesh Forest Research Institute",
+    "papers": 2,
+    "journal": "Journal of Medicinal Plants Studies",
+    "response": "He did not respond to our multiple requests for comment."
+  },
+  {
+    "author": "Abu Zobayed",
+    "role": "Lecturer",
+    "dept": "",
+    "aff": "Mawlana Bhashani Science and Technology University",
+    "papers": 2,
+    "journal": "Journal of Medicinal Plants Studies",
+    "response": "“It is a matter of judgment whether a journal is predatory or not. My corresponding author checked the journal, and we did not consider it predatory.”"
+  },
+  {
+    "author": "Bishwajit Bokshi",
+    "role": "Professor",
+    "dept": "Pharmacy Discipline",
+    "aff": "Khulna University",
+    "papers": 2,
+    "journal": "Journal of Medicinal Plants Studies",
+    "response": "He did not respond to our multiple requests for comment."
+  },
+  {
+    "author": "Chameli Saha",
+    "role": "Assistant Professor",
+    "dept": "Forestry and Wood Technology Discipline",
+    "aff": "Khulna University",
+    "papers": 2,
+    "journal": "Open Journal of Forestry",
+    "response": "She did not respond to our repeated requests for comment."
+  },
+  {
+    "author": "Dr. Md. Adnan Al Bachchu",
+    "role": "Professor",
+    "dept": "Department of Entomology",
+    "aff": "Hajee Mohammad Danesh Science and Technology University (HSTU)",
+    "papers": 2,
+    "journal": "Journal of Medicinal Plants Studies",
+    "response": "“I became suspicious when the journal published the paper within just one month, because I did not think anyone could complete the publication process that quickly. I mainly agreed to publish the paper because some of my co-authors had specific needs at the time.”"
+  },
+  {
+    "author": "Dr. Utpal Kumar Karmakar",
+    "role": "Professor",
+    "dept": "Pharmacy Discipline",
+    "aff": "Khulna University",
+    "papers": 2,
+    "journal": "Journal of Medicinal Plants Studies",
+    "response": "He did not respond to our multiple requests for comment."
+  },
+  {
+    "author": "GM Masud Parvez",
+    "role": "Lecturer",
+    "dept": "Department of Pharmacy",
+    "aff": "Pabna University of Science and Technology",
+    "papers": 2,
+    "journal": "Journal of Medicinal Plants Studies",
+    "response": "He did not respond to our multiple requests for comment."
+  },
+  {
+    "author": "Israt Zahan Supty",
+    "role": "Laboratory Officer",
+    "dept": "Department of Pharmacy",
+    "aff": "Stamford University",
+    "papers": 2,
+    "journal": "Journal of Medicinal Plants Studies",
+    "response": "She did not respond to our multiple requests for comment."
+  },
+  {
+    "author": "Mahmood Hossain",
+    "role": "Professor",
+    "dept": "Forestry and Wood Technology Discipline",
+    "aff": "Khulna University",
+    "papers": 2,
+    "journal": "Open Journal of Forestry",
+    "response": "He did not respond to our repeated requests for comment."
+  },
+  {
+    "author": "Mahmuda Ferdous",
+    "role": "Assistant Professor",
+    "dept": "Department of Pharmacy",
+    "aff": "Noakhali Science and Technology University",
+    "papers": 2,
+    "journal": "Journal of Medicinal Plants Studies",
+    "response": "She did not respond to our multiple requests for comment."
+  },
+  {
+    "author": "N. N. Tonu",
+    "role": "Professor",
+    "dept": "Department of Plant Pathology",
+    "aff": "Sher-e-Bangla Agricultural University",
+    "papers": 2,
+    "journal": "International Journal of Research Science and Management",
+    "response": "Prof. Tonu said she was unaware of the journal’s dubious status. She, however, added that she had published in this journal because she had a ‘professional requirement’ to publish quickly."
+  },
+  {
+    "author": "Rabindra Nath Acharyya",
+    "role": "Assistant Professor",
+    "dept": "Pharmacy Discipline",
+    "aff": "Khulna University",
+    "papers": 2,
+    "journal": "Journal of Medicinal Plants Studies",
+    "response": "He did not respond to our multiple requests for comment."
+  },
+  {
+    "author": "Samir Kumar Sadhu",
+    "role": "Professor",
+    "dept": "Pharmacy Discipline",
+    "aff": "Khulna University",
+    "papers": 2,
+    "journal": "Journal of Medicinal Plants Studies",
+    "response": "He did not respond to our multiple requests for comment."
+  },
+  {
+    "author": "Sanjoy Saha",
+    "role": "Principal Scientific Officer",
+    "dept": "Institute for Integrated Studies on the Sundarbans and Coastal Ecosystems (IISSCE)",
+    "aff": "Khulna University",
+    "papers": 2,
+    "journal": "Open Journal of Forestry",
+    "response": "He did not respond to our repeated requests for comment."
+  },
+  {
+    "author": "Shamima Nasrin Lovely",
+    "role": "Lab Officer",
+    "dept": "Department of Pharmacy",
+    "aff": "Stamford University",
+    "papers": 2,
+    "journal": "Journal of Medicinal Plants Studies",
+    "response": "She did not respond to our multiple requests for comment."
+  },
+  {
+    "author": "Shrabanti Dev",
+    "role": "Professor",
+    "dept": "Pharmacy Discipline",
+    "aff": "Khulna University",
+    "papers": 2,
+    "journal": "Journal of Medicinal Plants Studies",
+    "response": "She did not respond to our multiple requests for comment."
+  },
+  {
+    "author": "Taufiq Rahman",
+    "role": "Associate Professor",
+    "dept": "Department of Pharmacology",
+    "aff": "University of Cambridge",
+    "papers": 2,
+    "journal": "Journal of Medicinal Plants Studies",
+    "response": "He did not respond to our multiple requests for comment."
+  },
+  {
+    "author": "Tushar Ahmed Shishir",
+    "role": "Senior Lecturer",
+    "dept": "Department of Biotechnology",
+    "aff": "BRAC University",
+    "papers": 2,
+    "journal": "Journal of Medicinal Plants Studies",
+    "response": "He did not respond to our multiple requests for comment."
+  },
+  {
+    "author": "Md. Shah Amran",
+    "role": "Professor",
+    "dept": "Department of Pharmaceutical Chemistry",
+    "aff": "University of Dhaka",
+    "papers": 2,
+    "journal": "Asian Journal of Advanced Research and Reports (AJARR)",
+    "response": "He said he did not know the journal was predatory."
+  }
+];
+  var PAGE_SIZE = 10;
+
+  var rowsEl = document.getElementById("rows");
+  var qEl = document.getElementById("q");
+  var sortEl = document.getElementById("sort");
+  var pagerEl = document.getElementById("pager");
+  var statusEl = document.getElementById("status");
+  var prevEl = document.getElementById("prev");
+  var nextEl = document.getElementById("next");
+  var emptyEl = document.getElementById("empty");
+  var barEl = document.getElementById("bar");
+  var page = 1, filter = "all";
+
+  DATA.forEach(function (d, i) {
+    d._i = i;
+    d._kind = d.response === "Deceased" ? "deceased"
+      : /did not respond/i.test(d.response) ? "none" : "responded";
+    d._hay = [d.author, d.aff, d.dept].join(" ").toLowerCase();
+  });
+
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== undefined) n.textContent = text;
+    return n;
+  }
+
+  function sorted(list) {
+    var key = sortEl.value;
+    return list.slice().sort(function (a, b) {
+      var c = key === "papers" ? b.papers - a.papers : a.author.localeCompare(b.author);
+      return c !== 0 ? c : a._i - b._i;   // ties keep the original order
+    });
+  }
+
+  // keep the reader at the top of the list after paging or filtering
+  function toListTop() {
+    var target = rowsEl.offsetTop - barEl.offsetHeight;
+    if (window.pageYOffset > target) window.scrollTo(0, target);
+  }
+
+  function render() {
+    var q = qEl.value.trim().toLowerCase();
+    var matched = DATA.filter(function (d) { return !q || d._hay.indexOf(q) !== -1; });
+    var counts = { all: matched.length, responded: 0, none: 0 };
+    matched.forEach(function (d) { if (counts[d._kind] !== undefined) counts[d._kind]++; });
+    ["all", "responded", "none"].forEach(function (k) {
+      document.getElementById("n-" + k).textContent = " " + counts[k];
+    });
+
+    var list = sorted(matched.filter(function (d) { return filter === "all" || d._kind === filter; }));
+    var totalPages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
+    if (page > totalPages) page = totalPages;
+    var startIdx = (page - 1) * PAGE_SIZE;
+    var visible = list.slice(startIdx, startIdx + PAGE_SIZE);
+
+    rowsEl.innerHTML = "";
+    visible.forEach(function (d) {
+      var row = el("div", "row");
+      row.setAttribute("role", "listitem");
+
+      var a = el("div", "author");
+      a.appendChild(el("div", "name", d.author));
+      [d.role, [d.dept, d.aff].filter(Boolean).join(", ")].forEach(function (t) { if (t) a.appendChild(el("div", "meta", t)); });
+      a.appendChild(el("div", "journal", d.journal));
+
+      var p = el("div", "papers", String(d.papers));
+      p.appendChild(el("span", "unit", " papers"));
+      p.setAttribute("aria-label", d.papers + " papers");
+
+      var r = el("div", "response " + d._kind, d.response);
+
+      row.appendChild(a); row.appendChild(p); row.appendChild(r);
+      rowsEl.appendChild(row);
+    });
+
+    emptyEl.hidden = list.length > 0;
+    pagerEl.hidden = list.length === 0;
+    statusEl.textContent = list.length
+      ? (startIdx + 1) + "–" + (startIdx + visible.length) + " of " + list.length + " authors"
+      : "";
+    prevEl.disabled = page === 1;
+    nextEl.disabled = page === totalPages;
+  }
+
+  function update() { page = 1; render(); toListTop(); }
+
+  Array.prototype.forEach.call(document.querySelectorAll(".filters button"), function (b) {
+    b.addEventListener("click", function () {
+      filter = b.getAttribute("data-f");
+      Array.prototype.forEach.call(document.querySelectorAll(".filters button"), function (x) {
+        x.setAttribute("aria-pressed", String(x === b));
+      });
+      update();
+    });
+  });
+  prevEl.addEventListener("click", function () { page--; render(); toListTop(); });
+  nextEl.addEventListener("click", function () { page++; render(); toListTop(); });
+  sortEl.addEventListener("change", update);
+  qEl.addEventListener("input", function () { page = 1; render(); });
+
+  var subEl = document.getElementById("sub"), moreEl = document.getElementById("more");
+  moreEl.addEventListener("click", function () {
+    var open = subEl.classList.toggle("open");
+    moreEl.textContent = open ? "Show less" : "Read more";
+    moreEl.setAttribute("aria-expanded", String(open));
+  });
+
+  render();
+</script>
+</body>
+</html>
